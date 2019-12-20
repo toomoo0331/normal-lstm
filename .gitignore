@@ -1,3 +1,5 @@
 image/
 data/
 .ipynb_checkpoints/
+weights.hdf5
+model_architecture.json
