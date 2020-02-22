@@ -5,18 +5,14 @@ from keras.layers import Convolution2D, MaxPooling2D, Flatten, Reshape, BatchNor
 from keras.models import Sequential
 from keras.layers.wrappers import TimeDistributed
 from keras.layers.pooling import GlobalAveragePooling2D
-from keras.optimizers import SGD
 from keras.utils import np_utils
 from keras.models import Model
 from keras.optimizers import Adam
-from keras.engine.network import Network
 from keras import backend as K
 from keras.utils import Sequence
-import keras.backend.tensorflow_backend as KTF
 from keras.initializers import glorot_normal,orthogonal
-from keras.callbacks import EarlyStopping,TensorBoard
 
-from train_model import resnet18
+from many_2_many import resnet18
 
 class Prediction :
     def __init__(self, timesteps, n_out, width, height):
@@ -27,6 +23,7 @@ class Prediction :
         self.resnet = resnet18.Resnet18(width, height, 3).get_resnet18()
         self.sharedLSTMmodel = self.create_sharedLSTMmodel()
         self.sharedRateModel = self.create_sharedRatemodel()
+        self.sharedAutoRegModel = self.create_sharedAutoRegLSTMmodel()
     
     
     def create_sharedLSTMmodel(self):
@@ -48,12 +45,34 @@ class Prediction :
     def create_sharedRatemodel(self):
         inputs = Input(shape=(512,))
         mid_dense = Dense(256, activation='relu')(inputs)
-        predictions = Dense(1, activation='sigmoid')(mid_dense)
+        predictions = Dense(self.maxlen, activation='sigmoid')(mid_dense)
         shared_layers = Model(inputs, predictions, name="shared_Ratelayers")
         return shared_layers
     
+    def create_sharedAutoRegLSTMmodel(self):
+        inputs = Input(shape=(2*self.maxlen,1))
+        
+        mid_lstm = Bidirectional(LSTM(128, batch_input_shape = (None, 2*self.maxlen,1),
+             kernel_initializer = glorot_normal(seed=20181020),
+             recurrent_initializer = orthogonal(gain=1.0, seed=20181020), 
+             dropout = 0.01, 
+             recurrent_dropout = 0.01,
+             return_sequences=True))(inputs)
+
+        mid_dense = Dense(256, activation='relu')(mid_lstm)
+        predictions = Dense(self.maxlen, activation='sigmoid')(mid_dense)
+
+        shared_layers = Model(inputs, predictions, name="shared_AutoRegLSTMlayers")
+        return shared_layers
+
 
     def create_model(self):
+        before1 = Input(shape=(self.maxlen,))
+        before2 = Input(shape=(self.maxlen,))
+        before3 = Input(shape=(self.maxlen,))
+        before4 = Input(shape=(self.maxlen,))
+        before5 = Input(shape=(self.maxlen,))
+
         model_input1 = Input(shape=(self.maxlen, self.height, self.width, 3))
         model_input2 = Input(shape=(self.maxlen, self.height, self.width, 3))
         model_input3 = Input(shape=(self.maxlen, self.height, self.width, 3))
@@ -87,8 +106,29 @@ class Prediction :
         predictions3 = self.sharedRateModel(merge_feature3)
         predictions4 = self.sharedRateModel(merge_feature4)
         predictions5 = self.sharedRateModel(merge_feature5)
-        
-        model = Model(inputs=[model_input1, model_input2, model_input3, model_input4, model_input5], 
-                      outputs=[predictions1,predictions2,predictions3,predictions4,predictions5])
+
+
+        merge_pred1 = keras.layers.concatenate([before1, predictions1], axis=-1)
+        merge_pred2 = keras.layers.concatenate([before2, predictions2], axis=-1)
+        merge_pred3 = keras.layers.concatenate([before3, predictions3], axis=-1)
+        merge_pred4 = keras.layers.concatenate([before4, predictions4], axis=-1)
+        merge_pred5 = keras.layers.concatenate([before5, predictions5], axis=-1)
+
+
+        merge_pred1 = Reshape((2*self.maxlen,1))(merge_pred1)
+        merge_pred2 = Reshape((2*self.maxlen,1))(merge_pred2)
+        merge_pred3 = Reshape((2*self.maxlen,1))(merge_pred3)
+        merge_pred4 = Reshape((2*self.maxlen,1))(merge_pred4)
+        merge_pred5 = Reshape((2*self.maxlen,1))(merge_pred5)
+
+        final_predictions1 = self.sharedAutoRegModel(merge_pred1)
+        final_predictions2 = self.sharedAutoRegModel(merge_pred2)
+        final_predictions3 = self.sharedAutoRegModel(merge_pred3)
+        final_predictions4 = self.sharedAutoRegModel(merge_pred4)
+        final_predictions5 = self.sharedAutoRegModel(merge_pred5)
+
+
+        model = Model(inputs=[before1, before2, before3, before4, before5, model_input1, model_input2, model_input3, model_input4, model_input5], 
+                      outputs=[final_predictions1, final_predictions2, final_predictions3, final_predictions4, final_predictions5])
         model.compile(optimizer='Adam', loss='binary_crossentropy', metrics=['accuracy'])
         return model

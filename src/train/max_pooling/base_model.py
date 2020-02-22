@@ -5,16 +5,13 @@ from keras.layers import Convolution2D, MaxPooling2D, Flatten, Reshape, BatchNor
 from keras.models import Sequential
 from keras.layers.wrappers import TimeDistributed
 from keras.layers.pooling import GlobalAveragePooling2D
-from keras.optimizers import SGD
 from keras.utils import np_utils
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.engine.network import Network
 from keras import backend as K
-from keras.utils import Sequence
-import keras.backend.tensorflow_backend as KTF
 from keras.initializers import glorot_normal,orthogonal
-from keras.callbacks import EarlyStopping,TensorBoard
+from keras import regularizers
 
 from max_pooling import resnet18
 
@@ -47,8 +44,8 @@ class Prediction :
     
     def create_sharedRatemodel(self):
         inputs = Input(shape=(512,))
-        mid_dense = Dense(256, activation='relu')(inputs)
-        predictions = Dense(1, activation='sigmoid')(mid_dense)
+        mid_dense = Dense(256, activation='relu',activity_regularizer=regularizers.l1(0.01))(inputs)
+        predictions = Dense(1, activation='sigmoid',activity_regularizer=regularizers.l1(0.01))(mid_dense)
         shared_layers = Model(inputs, predictions, name="shared_Ratelayers")
         return shared_layers
     
